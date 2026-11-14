@@ -65,7 +65,6 @@ class EventCreate(BaseModel):
     title: str = Field(min_length=2, max_length=200)
     description: Optional[str] = None
     venue_id: int = Field(gt=0)
-    organiser_id: int = Field(gt=0)
     start_time: datetime
     end_time: datetime
     capacity: int = Field(gt=0)

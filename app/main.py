@@ -1,7 +1,6 @@
 
 from fastapi import FastAPI
-from app.routers import auth
-from app.routers import auth, venues
+from app.routers import auth, venues, events
 
 app = FastAPI(
     title="EventSphere",
@@ -11,6 +10,7 @@ app = FastAPI(
 
 app.include_router(auth.router)
 app.include_router(venues.router)
+app.include_router(events.router)
 
 
 @app.get("/")
