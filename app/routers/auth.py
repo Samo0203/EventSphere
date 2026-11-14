@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 from app.schemas import UserCreate, UserResponse
-from app.security import hash_password, verify_password, create_access_token
+from app.security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    get_current_user,
+    require_roles
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -94,3 +100,26 @@ def login_user(
         status_code=401,
         detail="User not found"
     )
+
+# GET CURRENT USER PROFILE
+@router.get("/me")
+def get_my_profile(
+    current_user: User = Depends(get_current_user)
+):
+    return {
+        "id": current_user.id,
+        "full_name": current_user.full_name,
+        "email": current_user.email,
+        "role": current_user.role
+    }
+
+
+# ADMIN ONLY TEST ENDPOINT
+@router.get("/admin-test")
+def admin_test(
+    current_user: User = Depends(require_roles("admin"))
+):
+    return {
+        "message": "Admin access granted",
+        "user": current_user.email
+    }
