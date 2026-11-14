@@ -88,6 +88,11 @@ class Booking(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    ticket_category_id = Column(
+        Integer,
+        ForeignKey("ticket_categories.id"),
+        nullable=False
+    )
 
     quantity = Column(Integer, nullable=False)
     total_amount = Column(Numeric(10, 2), nullable=False)
@@ -97,6 +102,7 @@ class Booking(Base):
 
     user = relationship("User")
     event = relationship("Event")
+    ticket_category = relationship("TicketCategory")
 
 
 # 6. Digital Tickets

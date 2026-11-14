@@ -97,7 +97,6 @@ class TicketCategoryCreate(BaseModel):
     name: str
     price: Decimal = Field(ge=0)
     total_quantity: int = Field(gt=0)
-    available_quantity: int = Field(ge=0)
 
 
 class TicketCategoryResponse(BaseSchema):
@@ -115,6 +114,7 @@ class TicketCategoryResponse(BaseSchema):
 
 class BookingCreate(BaseModel):
     event_id: int = Field(gt=0)
+    ticket_category_id: int = Field(gt=0)
     quantity: int = Field(gt=0)
 
 

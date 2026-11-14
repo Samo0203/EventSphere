@@ -1,7 +1,6 @@
 
 from fastapi import FastAPI
-from app.routers import auth, venues, events
-
+from app.routers import auth, venues, events, ticket_categories, bookings
 app = FastAPI(
     title="EventSphere",
     description="Venue Booking and Digital Ticketing Platform",
@@ -11,6 +10,8 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(venues.router)
 app.include_router(events.router)
+app.include_router(ticket_categories.router)
+app.include_router(bookings.router)
 
 
 @app.get("/")
