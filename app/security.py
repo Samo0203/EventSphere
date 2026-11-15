@@ -1,142 +1,44 @@
-
 import os
 from datetime import datetime, timedelta, timezone
-
-from jose import JWTError, jwt
-from pwdlib import PasswordHash
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from pwdlib import PasswordHash
 from sqlalchemy.orm import Session
-
 from app.database import get_db
 from app.models import User
 
-
-# --------------------------------
-# SECURITY CONFIGURATION
-# --------------------------------
-
-SECRET_KEY = os.getenv("SECRET_KEY")
-
-if not SECRET_KEY:
-    # Development fallback only.
-    # Set a strong SECRET_KEY environment variable on Render.
-    SECRET_KEY = "development-only-change-this-secret-before-deployment"
-
+SECRET_KEY = os.getenv("SECRET_KEY", "local-dev-secret-change-before-deploy-please-123456789")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
 password_hash = PasswordHash.recommended()
-
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/auth/login"
-)
-
-
-# --------------------------------
-# PASSWORD HASHING
-# --------------------------------
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 def hash_password(password: str) -> str:
     return password_hash.hash(password)
 
+def verify_password(password: str, hashed: str) -> bool:
+    return password_hash.verify(password, hashed)
 
-def verify_password(
-    plain_password: str,
-    hashed_password: str
-) -> bool:
-    return password_hash.verify(
-        plain_password,
-        hashed_password
-    )
+def create_token(user: User):
+    payload = {"sub": str(user.id), "role": user.role,
+               "exp": datetime.now(timezone.utc) + timedelta(hours=8)}
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-
-# --------------------------------
-# JWT TOKEN CREATION
-# --------------------------------
-
-def create_access_token(
-    data: dict,
-    expires_delta: timedelta | None = None
-):
-    to_encode = data.copy()
-
-    expire = datetime.now(timezone.utc) + (
-        expires_delta
-        or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-
-    to_encode.update({"exp": expire})
-
-    return jwt.encode(
-        to_encode,
-        SECRET_KEY,
-        algorithm=ALGORITHM
-    )
-
-
-# --------------------------------
-# GET CURRENT LOGGED-IN USER
-# --------------------------------
-
-
-def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
-):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
+def current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    error = HTTPException(status_code=401, detail="Invalid or expired login")
     try:
-        payload = jwt.decode(
-            token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM]
-        )
-
-        email = payload.get("sub")
-
-        if email is None:
-            raise credentials_exception
-
-    except JWTError as error:
-        print("JWT DEBUG ERROR:", str(error))
-        raise credentials_exception
-
-    user = db.query(User).filter(User.email == email).first()
-
-    if user is None:
-        raise credentials_exception
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive"
-        )
-
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("sub", "0"))
+    except (JWTError, ValueError, TypeError):
+        raise error
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not user:
+        raise error
     return user
 
-
-
-# --------------------------------
-# ROLE-BASED ACCESS CONTROL
-# --------------------------------
-
-def require_roles(*allowed_roles: str):
-
-    def role_checker(
-        current_user: User = Depends(get_current_user)
-    ):
-        if current_user.role not in allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to access this resource"
-            )
-
-        return current_user
-
-    return role_checker
+def roles(*allowed):
+    def checker(user: User = Depends(current_user)):
+        if user.role not in allowed:
+            raise HTTPException(status_code=403, detail="Your account role cannot access this feature")
+        return user
+    return checker

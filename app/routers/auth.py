@@ -1,125 +1,33 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-
 from app.database import get_db
 from app.models import User
-from app.schemas import UserCreate, UserResponse
-from app.security import (
-    hash_password,
-    verify_password,
-    create_access_token,
-    get_current_user,
-    require_roles
-)
+from app.schemas import RegisterIn, UserOut
+from app.security import hash_password, verify_password, create_token, current_user, roles
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+router=APIRouter(prefix="/auth",tags=["Authentication"])
 
-
-# USER REGISTRATION
-@router.post(
-    "/register",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED
-)
-def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
-
-    existing_user = db.query(User).filter(
-        User.email == user_data.email
-    ).first()
-
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email is already registered"
-        )
-
-    new_user = User(
-        full_name=user_data.full_name,
-        email=user_data.email,
-        hashed_password=hash_password(user_data.password),
-        role="attendee"
-    )
-
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    return new_user
-
-
-# USER LOGIN
+@router.post("/register",response_model=UserOut,status_code=201)
+def register(data:RegisterIn,db:Session=Depends(get_db)):
+    email=data.email.lower()
+    if db.query(User).filter_by(email=email).first(): raise HTTPException(409,"Email already registered")
+    u=User(full_name=data.full_name,email=email,hashed_password=hash_password(data.password),role="attendee")
+    db.add(u); db.commit(); db.refresh(u); return u
 
 @router.post("/login")
-def login_user(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
-):
-   
+def login(form:OAuth2PasswordRequestForm=Depends(),db:Session=Depends(get_db)):
+    u=db.query(User).filter_by(email=form.username.lower()).first()
+    if not u or not verify_password(form.password,u.hashed_password): raise HTTPException(401,"Incorrect email or password")
+    if not u.is_active: raise HTTPException(403,"Account inactive")
+    return {"access_token":create_token(u),"token_type":"bearer","user":{"id":u.id,"full_name":u.full_name,"email":u.email,"role":u.role}}
 
-    user = db.query(User).filter(
-        User.email == form_data.username
-    ).first()
+@router.get("/me",response_model=UserOut)
+def me(user:User=Depends(current_user)): return user
 
-
-    if user:
-        password_ok = verify_password(
-            form_data.password,
-            user.hashed_password
-        )
-        
-        if not password_ok:
-            raise HTTPException(
-                status_code=401,
-                detail="Incorrect email or password"
-            )
-
-        if not user.is_active:
-            raise HTTPException(
-                status_code=403,
-                detail="User account is inactive"
-            )
-
-        access_token = create_access_token(
-            data={"sub": user.email, "role": user.role}
-        )
-
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user.id,
-                "full_name": user.full_name,
-                "email": user.email,
-                "role": user.role
-            }
-        }
-
-    raise HTTPException(
-        status_code=401,
-        detail="User not found"
-    )
-
-# GET CURRENT USER PROFILE
-@router.get("/me")
-def get_my_profile(
-    current_user: User = Depends(get_current_user)
-):
-    return {
-        "id": current_user.id,
-        "full_name": current_user.full_name,
-        "email": current_user.email,
-        "role": current_user.role
-    }
-
-
-# ADMIN ONLY TEST ENDPOINT
-@router.get("/admin-test")
-def admin_test(
-    current_user: User = Depends(require_roles("admin"))
-):
-    return {
-        "message": "Admin access granted",
-        "user": current_user.email
-    }
+@router.post("/admin/users/{user_id}/role")
+def set_role(user_id:int,role:str,db:Session=Depends(get_db),admin:User=Depends(roles("admin"))):
+    if role not in ("admin","staff","attendee"): raise HTTPException(400,"Role must be admin, staff or attendee")
+    u=db.query(User).filter_by(id=user_id).first()
+    if not u: raise HTTPException(404,"User not found")
+    u.role=role; db.commit(); return {"id":u.id,"role":u.role}

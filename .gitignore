@@ -1,9 +1,8 @@
-
 venv/
+.venv/
 __pycache__/
-*.py[cod]
-*.db
+*.pyc
 .env
+*.db
 .pytest_cache/
 .coverage
-.vscode/

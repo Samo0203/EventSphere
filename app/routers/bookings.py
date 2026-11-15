@@ -1,122 +1,58 @@
 import secrets
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter,Depends,HTTPException
 from sqlalchemy.orm import Session
-
 from app.database import get_db
-from app.models import Booking, Event, TicketCategory, Payment
-from app.schemas import BookingCreate
-from app.security import get_current_user
+from app.models import Booking,Event,TicketCategory,Payment,Ticket,WaitlistEntry
+from app.schemas import BookingIn,TicketOut
+from app.security import current_user
+from app.agents.agents import BookingAgent,TicketAgent,WaitlistAgent,NotificationAgent
+from app.agents.bus import AgentBus
+router=APIRouter(prefix="/bookings",tags=["Bookings"])
 
-router = APIRouter(
-    prefix="/bookings",
-    tags=["Booking Management"]
-)
-
-
-@router.post("/", status_code=status.HTTP_201_CREATED)
-def create_booking(
-    booking_data: BookingCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
-):
+@router.post("/",status_code=201)
+def book(data:BookingIn,db:Session=Depends(get_db),u=Depends(current_user)):
+    event=db.query(Event).filter_by(id=data.event_id,status="published").first()
+    if not event: raise HTTPException(404,"Published event not found")
+    cat=db.query(TicketCategory).filter_by(id=data.ticket_category_id,event_id=data.event_id).first()
+    if not cat: raise HTTPException(404,"Ticket category not found")
+    agent=BookingAgent(db); verdict=agent.assess(cat,data.quantity)
+    if verdict["decision"]!="AGREE": raise HTTPException(400,verdict["reason"])
+    # Conditional SQL UPDATE is atomic: concurrent requests cannot decrement below zero.
+    changed=db.query(TicketCategory).filter(TicketCategory.id==cat.id,TicketCategory.available_quantity>=data.quantity).update(
+        {TicketCategory.available_quantity:TicketCategory.available_quantity-data.quantity},synchronize_session=False)
+    if changed!=1: db.rollback(); raise HTTPException(409,"Tickets sold out; join the waitlist")
     try:
-        # Check whether event exists
-        event = db.query(Event).filter(
-            Event.id == booking_data.event_id
-        ).first()
-
-        if not event:
-            raise HTTPException(
-                status_code=404,
-                detail="Event not found"
-            )
-
-        if event.status == "cancelled":
-            raise HTTPException(
-                status_code=400,
-                detail="This event has been cancelled"
-            )
-
-        # Check ticket category
-        category = db.query(TicketCategory).filter(
-            TicketCategory.id == booking_data.ticket_category_id,
-            TicketCategory.event_id == booking_data.event_id
-        ).first()
-
-        if not category:
-            raise HTTPException(
-                status_code=404,
-                detail="Ticket category not found for this event"
-            )
-
-        # Atomically reduce available ticket quantity
-        result = db.query(TicketCategory).filter(
-            TicketCategory.id == booking_data.ticket_category_id,
-            TicketCategory.available_quantity >= booking_data.quantity
-        ).update(
-            {
-                TicketCategory.available_quantity:
-                    TicketCategory.available_quantity - booking_data.quantity
-            },
-            synchronize_session=False
-        )
-
-        if result == 0:
-            db.rollback()
-            raise HTTPException(
-                status_code=400,
-                detail="Not enough tickets available"
-            )
-
-        # Calculate booking amount
-        total_amount = category.price * booking_data.quantity
-
-        # Create booking
-        new_booking = Booking(
-            user_id=current_user.id,
-            event_id=booking_data.event_id,
-            ticket_category_id=booking_data.ticket_category_id,
-            quantity=booking_data.quantity,
-            total_amount=total_amount,
-            status="confirmed"
-        )
-
-        db.add(new_booking)
+        total=cat.price*data.quantity
+        b=Booking(user_id=u.id,event_id=event.id,ticket_category_id=cat.id,quantity=data.quantity,total_amount=total,status="confirmed")
+        db.add(b); db.flush()
+        ref="SIM-"+secrets.token_hex(8).upper()
+        db.add(Payment(booking_id=b.id,payment_reference=ref,amount=total,status="success"))
         db.flush()
-
-        # Generate simulated payment reference
-        payment_reference = "PAY-" + secrets.token_hex(6).upper()
-
-        new_payment = Payment(
-            booking_id=new_booking.id,
-            payment_reference=payment_reference,
-            amount=total_amount,
-            status="success"
-        )
-
-        db.add(new_payment)
+        tickets=TicketAgent(db).issue(b)
+        AgentBus(db).send("BookingAgent","TicketAgent","REQUEST",{"booking_id":b.id,"quantity":data.quantity})
+        NotificationAgent(db).notify(u.id,"Booking confirmed",f"Your booking #{b.id} is confirmed. Simulated payment reference: {ref}")
         db.commit()
-        db.refresh(new_booking)
-
-        return {
-            "message": "Booking created successfully",
-            "booking_id": new_booking.id,
-            "event_id": new_booking.event_id,
-            "ticket_category": category.name,
-            "quantity": new_booking.quantity,
-            "total_amount": float(new_booking.total_amount),
-            "booking_status": new_booking.status,
-            "payment_reference": payment_reference,
-            "payment_status": "success"
-        }
-
-    except HTTPException:
-        raise
-
+        return {"booking_id":b.id,"event":event.title,"quantity":b.quantity,"amount":str(total),"payment_reference":ref,"tickets":[{"id":t.id,"qr_code":t.qr_code} for t in tickets]}
     except Exception:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="Booking could not be completed"
-        )
+        db.rollback(); raise
+
+@router.get("/mine")
+def mine(db:Session=Depends(get_db),u=Depends(current_user)):
+    rows=db.query(Booking).filter_by(user_id=u.id).order_by(Booking.created_at.desc()).all()
+    return [{"id":b.id,"event":b.event.title,"event_id":b.event_id,"quantity":b.quantity,"amount":str(b.total_amount),"status":b.status,
+             "tickets":[{"id":t.id,"qr_code":t.qr_code,"checked_in":t.checked_in} for t in db.query(Ticket).filter_by(booking_id=b.id).all()]} for b in rows]
+
+@router.post("/{bid}/cancel")
+def cancel_booking(bid:int,db:Session=Depends(get_db),u=Depends(current_user)):
+    b=db.query(Booking).filter_by(id=bid,user_id=u.id).first()
+    if not b: raise HTTPException(404,"Booking not found")
+    if b.status!="confirmed": raise HTTPException(400,"Booking is not active")
+    refund=BookingAgent(db).refund(b,b.event)
+    b.status="cancelled"
+    for t in db.query(Ticket).filter_by(booking_id=bid).all(): t.status="cancelled"
+    cat=db.query(TicketCategory).filter_by(id=b.ticket_category_id).first()
+    cat.available_quantity=min(cat.total_quantity,cat.available_quantity+b.quantity)
+    for p in db.query(Payment).filter_by(booking_id=bid).all(): p.status="refunded" if refund>0 else "no_refund"
+    db.commit()
+    if refund>0: WaitlistAgent(db).offer_next(b.event_id,b.ticket_category_id,cat.available_quantity)
+    return {"status":"cancelled","refund_amount":str(refund),"policy":"100% refund at least 48 hours before event; no refund inside 48 hours; full refund if event cancelled."}

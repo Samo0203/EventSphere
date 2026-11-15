@@ -1,171 +1,61 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-
 from datetime import timedelta
-
+from fastapi import APIRouter,Depends,HTTPException
+from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Event, Venue
-from app.schemas import EventCreate, EventResponse
-from app.security import get_current_user, require_roles
+from app.models import Event,Venue,TicketCategory
+from app.schemas import EventIn,EventOut,CategoryIn,CategoryOut
+from app.security import current_user,roles
+from app.agents.agents import VenueAgent
+router=APIRouter(prefix="/events",tags=["Events"])
 
-router = APIRouter(prefix="/events", tags=["Event Management"])
+@router.post("/",response_model=EventOut,status_code=201)
+def create(data:EventIn,db:Session=Depends(get_db),u=Depends(roles("admin"))):
+    venue=db.query(Venue).filter_by(id=data.venue_id,is_available=True).first()
+    if not venue: raise HTTPException(404,"Venue not available")
+    if data.capacity>venue.capacity: raise HTTPException(400,"Event capacity exceeds venue capacity")
+    decision=VenueAgent(db).check_slot(data.venue_id,data.start_time,data.end_time)
+    if decision["decision"]!="AGREE": raise HTTPException(409,decision["reason"])
+    e=Event(**data.model_dump(),organiser_id=u.id); db.add(e); db.commit(); db.refresh(e); return e
 
+@router.get("/",response_model=list[EventOut])
+def list_events(q:str|None=None,category:str|None=None,db:Session=Depends(get_db)):
+    query=db.query(Event).filter(Event.status=="published")
+    if q: query=query.filter(Event.title.ilike(f"%{q}%")|Event.description.ilike(f"%{q}%"))
+    if category: query=query.filter(Event.category==category)
+    return query.order_by(Event.start_time).all()
 
-def check_event_details(db: Session, event_data: EventCreate, exclude_event_id=None):
-    venue = db.query(Venue).filter(
-        Venue.id == event_data.venue_id
-    ).first()
+@router.get("/{eid}",response_model=EventOut)
+def get_event(eid:int,db:Session=Depends(get_db)):
+    e=db.query(Event).filter_by(id=eid).first()
+    if not e: raise HTTPException(404,"Event not found")
+    return e
 
-    if not venue:
-        raise HTTPException(
-            status_code=404,
-            detail="Venue not found"
-        )
+@router.put("/{eid}/publish")
+def publish(eid:int,db:Session=Depends(get_db),u=Depends(roles("admin"))):
+    e=db.query(Event).filter_by(id=eid).first()
+    if not e: raise HTTPException(404,"Event not found")
+    cats=db.query(TicketCategory).filter_by(event_id=eid).all()
+    if not cats: raise HTTPException(400,"Add at least one ticket category before publishing")
+    if sum(c.total_quantity for c in cats)>e.capacity: raise HTTPException(400,"Ticket inventory exceeds event capacity")
+    e.status="published"; db.commit(); return {"status":"published"}
 
-    if not venue.is_available:
-        raise HTTPException(
-            status_code=400,
-            detail="This venue is currently unavailable"
-        )
+@router.post("/{eid}/categories",response_model=CategoryOut,status_code=201)
+def add_category(eid:int,data:CategoryIn,db:Session=Depends(get_db),u=Depends(roles("admin"))):
+    e=db.query(Event).filter_by(id=eid).first()
+    if not e: raise HTTPException(404,"Event not found")
+    existing=sum(c.total_quantity for c in db.query(TicketCategory).filter_by(event_id=eid).all())
+    if existing+data.total_quantity>e.capacity: raise HTTPException(400,"Ticket quantities exceed event capacity")
+    c=TicketCategory(event_id=eid,name=data.name,price=data.price,total_quantity=data.total_quantity,available_quantity=data.total_quantity)
+    db.add(c); db.commit(); db.refresh(c); return c
 
-    if event_data.capacity > venue.capacity:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Event capacity cannot exceed venue capacity ({venue.capacity})"
-        )
+@router.get("/{eid}/categories",response_model=list[CategoryOut])
+def categories(eid:int,db:Session=Depends(get_db)):
+    return db.query(TicketCategory).filter_by(event_id=eid).all()
 
-    # Check whether another event overlaps at the same venue
-    buffer = timedelta(minutes=30)
-
-    query = db.query(Event).filter(
-        Event.venue_id == event_data.venue_id,
-        Event.start_time < event_data.end_time + buffer,
-        Event.end_time > event_data.start_time - buffer
-    )
-
-    if exclude_event_id is not None:
-        query = query.filter(Event.id != exclude_event_id)
-
-    conflicting_event = query.first()
-
-    if conflicting_event:
-        raise HTTPException(
-            status_code=409,
-            detail="This venue already has an event scheduled during that time"
-        )
-
-    return venue
-
-
-# CREATE EVENT - ORGANISER OR ADMIN
-@router.post(
-    "/",
-    response_model=EventResponse,
-    status_code=status.HTTP_201_CREATED
-)
-def create_event(
-    event_data: EventCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "organiser"))
-):
-    check_event_details(db, event_data)
-
-    new_event = Event(
-        title=event_data.title,
-        description=event_data.description,
-        venue_id=event_data.venue_id,
-        organiser_id=current_user.id,
-        start_time=event_data.start_time,
-        end_time=event_data.end_time,
-        capacity=event_data.capacity
-    )
-
-    db.add(new_event)
-    db.commit()
-    db.refresh(new_event)
-
-    return new_event
-
-
-# VIEW ALL EVENTS - AUTHENTICATED USERS
-@router.get("/", response_model=list[EventResponse])
-def get_all_events(
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    return db.query(Event).order_by(Event.start_time.asc()).all()
-
-
-# VIEW ONE EVENT - AUTHENTICATED USERS
-@router.get("/{event_id}", response_model=EventResponse)
-def get_event(
-    event_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    event = db.query(Event).filter(Event.id == event_id).first()
-
-    if not event:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    return event
-
-
-# UPDATE EVENT - OWNER OR ADMIN
-@router.put("/{event_id}", response_model=EventResponse)
-def update_event(
-    event_id: int,
-    event_data: EventCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "organiser"))
-):
-    event = db.query(Event).filter(Event.id == event_id).first()
-
-    if not event:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    if current_user.role != "admin" and event.organiser_id != current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="You can only update your own events"
-        )
-
-    check_event_details(db, event_data, exclude_event_id=event_id)
-
-    event.title = event_data.title
-    event.description = event_data.description
-    event.venue_id = event_data.venue_id
-    event.start_time = event_data.start_time
-    event.end_time = event_data.end_time
-    event.capacity = event_data.capacity
-
-    db.commit()
-    db.refresh(event)
-
-    return event
-
-
-# CANCEL EVENT - OWNER OR ADMIN
-@router.delete("/{event_id}")
-def cancel_event(
-    event_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "organiser"))
-):
-    event = db.query(Event).filter(Event.id == event_id).first()
-
-    if not event:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    if current_user.role != "admin" and event.organiser_id != current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="You can only cancel your own events"
-        )
-
-    # Soft cancellation preserves booking and ticket history
-    event.status = "cancelled"
-    db.commit()
-
-    return {"message": "Event cancelled successfully"}
+@router.post("/{eid}/cancel")
+def cancel(eid:int,db:Session=Depends(get_db),u=Depends(roles("admin"))):
+    e=db.query(Event).filter_by(id=eid).first()
+    if not e: raise HTTPException(404,"Event not found")
+    e.status="cancelled"
+    for b in e.__dict__.get("bookings",[]): pass
+    db.commit(); return {"status":"cancelled","refund_policy":"Full simulated refunds are recorded for cancelled events; contact admin for processing."}

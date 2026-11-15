@@ -1,84 +1,63 @@
-
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, Optional
-
+from typing import Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
-
-# Allows Pydantic to read SQLAlchemy model objects
-class BaseSchema(BaseModel):
+class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-
-# -------------------------
-# USER SCHEMAS
-# -------------------------
-
-class UserCreate(BaseModel):
+class RegisterIn(BaseModel):
     full_name: str = Field(min_length=2, max_length=150)
     email: EmailStr
     password: str = Field(min_length=8)
-    role: Literal["admin", "organiser", "gate_staff", "attendee"] = "attendee"
 
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class UserResponse(BaseSchema):
+class UserOut(ORMModel):
     id: int
     full_name: str
     email: EmailStr
     role: str
-    is_active: bool
 
-
-# -------------------------
-# VENUE SCHEMAS
-# -------------------------
-
-class VenueCreate(BaseModel):
-    name: str = Field(min_length=2, max_length=150)
+class VenueIn(BaseModel):
+    name: str
     location: str
     capacity: int = Field(gt=0)
     description: Optional[str] = None
-    price_per_hour: Decimal = Field(default=Decimal("0"), ge=0)
+    image_url: Optional[str] = None
+    price_per_hour: Decimal = Field(ge=0)
+    is_available: bool = True
 
-
-class VenueResponse(BaseSchema):
+class VenueOut(ORMModel):
     id: int
     name: str
     location: str
     capacity: int
     description: Optional[str]
+    image_url: Optional[str]
     price_per_hour: Decimal
     is_available: bool
 
-
-# -------------------------
-# EVENT SCHEMAS
-# -------------------------
-
-class EventCreate(BaseModel):
-    title: str = Field(min_length=2, max_length=200)
+class EventIn(BaseModel):
+    title: str
+    category: str = "Other"
     description: Optional[str] = None
     venue_id: int = Field(gt=0)
     start_time: datetime
     end_time: datetime
     capacity: int = Field(gt=0)
+    status: str = "draft"
 
     @model_validator(mode="after")
-    def validate_event_times(self):
+    def times_valid(self):
         if self.end_time <= self.start_time:
-            raise ValueError("Event end time must be after start time")
+            raise ValueError("End time must be after start time")
+        if self.status not in ("draft", "published"):
+            raise ValueError("Status must be draft or published")
         return self
 
-
-class EventResponse(BaseSchema):
+class EventOut(ORMModel):
     id: int
     title: str
+    category: str
     description: Optional[str]
     venue_id: int
     organiser_id: int
@@ -87,19 +66,12 @@ class EventResponse(BaseSchema):
     capacity: int
     status: str
 
-
-# -------------------------
-# TICKET CATEGORY SCHEMAS
-# -------------------------
-
-class TicketCategoryCreate(BaseModel):
-    event_id: int = Field(gt=0)
+class CategoryIn(BaseModel):
     name: str
     price: Decimal = Field(ge=0)
     total_quantity: int = Field(gt=0)
 
-
-class TicketCategoryResponse(BaseSchema):
+class CategoryOut(ORMModel):
     id: int
     event_id: int
     name: str
@@ -107,32 +79,12 @@ class TicketCategoryResponse(BaseSchema):
     total_quantity: int
     available_quantity: int
 
-
-# -------------------------
-# BOOKING SCHEMAS
-# -------------------------
-
-class BookingCreate(BaseModel):
-    event_id: int = Field(gt=0)
-    ticket_category_id: int = Field(gt=0)
-    quantity: int = Field(gt=0)
-
-
-class BookingResponse(BaseSchema):
-    id: int
-    user_id: int
+class BookingIn(BaseModel):
     event_id: int
-    quantity: int
-    total_amount: Decimal
-    status: str
-    created_at: datetime
+    ticket_category_id: int
+    quantity: int = Field(gt=0, le=6)
 
-
-# -------------------------
-# TICKET SCHEMAS
-# -------------------------
-
-class TicketResponse(BaseSchema):
+class TicketOut(ORMModel):
     id: int
     booking_id: int
     qr_code: str
@@ -140,77 +92,25 @@ class TicketResponse(BaseSchema):
     checked_in: bool
     checked_in_at: Optional[datetime]
 
+class CheckInIn(BaseModel):
+    qr_code: str
+    event_id: int
 
-# -------------------------
-# PAYMENT SCHEMAS
-# -------------------------
-
-class PaymentResponse(BaseSchema):
-    id: int
-    booking_id: int
-    payment_reference: str
-    amount: Decimal
-    status: str
-    created_at: datetime
-
-
-# -------------------------
-# PRIVATE VENUE HIRE SCHEMAS
-# -------------------------
-
-class VenueHireCreate(BaseModel):
-    venue_id: int = Field(gt=0)
-    event_date: datetime
-    start_time: datetime
-    end_time: datetime
-    purpose: Optional[str] = None
-
-    @model_validator(mode="after")
-    def validate_hire_times(self):
-        if self.end_time <= self.start_time:
-            raise ValueError("Hire end time must be after start time")
-        return self
-
-
-class VenueHireResponse(BaseSchema):
-    id: int
-    user_id: int
+class HireIn(BaseModel):
     venue_id: int
     event_date: datetime
     start_time: datetime
     end_time: datetime
-    purpose: Optional[str]
-    status: str
-    decision_reason: Optional[str]
+    purpose: str
+    guest_count: int = Field(gt=0)
 
+    @model_validator(mode="after")
+    def valid_times(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("End time must be after start time")
+        return self
 
-# -------------------------
-# WAITLIST SCHEMAS
-# -------------------------
-
-class WaitlistCreate(BaseModel):
-    event_id: int = Field(gt=0)
-    quantity: int = Field(default=1, gt=0)
-
-
-class WaitlistResponse(BaseSchema):
-    id: int
-    user_id: int
+class WaitlistIn(BaseModel):
     event_id: int
-    quantity: int
-    status: str
-    offered_at: Optional[datetime]
-    expires_at: Optional[datetime]
-
-
-# -------------------------
-# NOTIFICATION SCHEMAS
-# -------------------------
-
-class NotificationResponse(BaseSchema):
-    id: int
-    user_id: int
-    title: str
-    message: str
-    is_read: bool
-    created_at: datetime
+    ticket_category_id: int
+    quantity: int = Field(gt=0, le=6)
