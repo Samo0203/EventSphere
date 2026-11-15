@@ -3,7 +3,7 @@
 FastAPI + SQLAlchemy (SQLite locally / PostgreSQL in production) + Bootstrap 5 single-page frontend.
 Every booking decision is made by five cooperating agents that talk **only through persisted JSON messages**.
 
-## Features (all Part A / Part B items, plus Part C extras)
+## Features
 | Area | What is implemented |
 |---|---|
 | Accounts & roles | Register/login, Argon2-hashed passwords, roles `admin` / `staff` / `attendee`, role checks on every protected route, CSRF token on every state-changing request |
@@ -17,7 +17,7 @@ Every booking decision is made by five cooperating agents that talk **only throu
 | Dashboard | Tickets sold, revenue, check-ins, capacity, sales bars, check-ins over time, agent state, message log grouped by conversation id |
 | Notifications | Stored per user, shown under *My tickets → Notifications* (unread badge) |
 
-**Part C (optional) features implemented:** waitlist with timed holds + countdown + automatic re-offer, dashboard charts (sales per event, check-ins over time), advanced search (date range, price range, venue).
+**Other features implemented:** waitlist with timed holds + countdown + automatic re-offer, dashboard charts (sales per event, check-ins over time), advanced search (date range, price range, venue).
 
 ## Demo accounts (created automatically on first start when the database is empty)
 | Role | Email | Password |
@@ -26,13 +26,7 @@ Every booking decision is made by five cooperating agents that talk **only throu
 | Gate staff | `staff@eventsphere.lk` | `Staff@12345` |
 | Attendee | `attendee@eventsphere.lk` | `Attendee@12345` |
 
-Set `SEED_DEMO=0` to disable seeding. **Change or delete the demo accounts after the viva.**
-
-### Demo event for the scanner
-When seeding is on, the app keeps one event called **Gate Test (Demo)** that starts about 1 hour from server start.
-It is still bookable and its check-in window is already open, so you can show *book → scan → ADMIT* at any time.
-Restart the server shortly before a demo so the event slides forward.
-Real seeded events start days away, so scanning their tickets correctly shows **Outside check-in time** with the open and close times.
+Set `SEED_DEMO=0` to disable seeding.
 
 ## Project layout
 ```
@@ -66,10 +60,6 @@ uvicorn app.main:app --reload --env-file .env
 Open http://127.0.0.1:8000 (API docs: `/docs`). Linux/macOS: `source venv/bin/activate` and `cp .env.example .env`.
 
 Without `--env-file .env` the app still runs, using the built-in defaults (SQLite, dev secret key).
-
-> **Old database:** if you change tables/columns, `create_all()` does not migrate. Rename your old
-> `eventsphere.db` (e.g. `eventsphere_backup.db`) before the next run.
-> The camera scanner only works on HTTPS (or `localhost`).
 
 ## Environment variables
 | Variable | Purpose |
@@ -105,7 +95,6 @@ and every agent's rules (through messages), state persistence and traceability.
    * Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
    * Env: `DATABASE_URL`, `SECRET_KEY` (long random), `APP_TZ_OFFSET_MINUTES=330`
 4. Open `/health`, `/docs`, sign in with a demo account, and run a full flow: book *Gate Test (Demo)* as the attendee, then scan it as staff (✅ ADMIT; a second scan says *Already used*).
-   Free instances sleep, so open the site before the viva.
 
 ## Agent design
 **Message envelope:** `{sender, receiver, performative, content, conversation_id}`; performatives `REQUEST AGREE REFUSE PROPOSE INFORM FAILURE`.

@@ -1,4 +1,3 @@
-"""Demo data so the viva starts with working accounts. Disabled with SEED_DEMO=0."""
 from datetime import timedelta
 from app.models import Event, TicketCategory, User, Venue
 from app.security import hash_password
