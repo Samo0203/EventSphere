@@ -88,13 +88,7 @@ hire (auto-confirm / clash alternatives / capacity / escalation / admin decision
 and every agent's rules (through messages), state persistence and traceability.
 
 ## Deploy on Render
-1. Push to GitHub (`.env` and `*.db` are git-ignored).
-2. Render → **New PostgreSQL** (free) → copy the *Internal Database URL*.
-3. Render → **New Web Service** from the repo. Runtime Python 3.11+.
-   * Build: `pip install -r requirements.txt`
-   * Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-   * Env: `DATABASE_URL`, `SECRET_KEY` (long random), `APP_TZ_OFFSET_MINUTES=330`
-4. Open `/health`, `/docs`, sign in with a demo account, and run a full flow: book *Gate Test (Demo)* as the attendee, then scan it as staff (✅ ADMIT; a second scan says *Already used*).
+Open https://eventsphere-dnmz.onrender.com/
 
 ## Agent design
 **Message envelope:** `{sender, receiver, performative, content, conversation_id}`; performatives `REQUEST AGREE REFUSE PROPOSE INFORM FAILURE`.
