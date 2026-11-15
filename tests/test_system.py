@@ -325,3 +325,15 @@ def test_outside_window_gives_open_close_detail(S):
     t = book(S).json()["tickets"][0]["qr_code"]
     r = S.c.post("/tickets/check-in", json={"event_id": S.event.id, "qr_code": t}, headers=hdr(S.staff)).json()
     assert r["admitted"] is False and r["reason"] == "Outside check-in time" and "open" in r["detail"]
+
+def test_agent_inbox_over_http(S):
+    body = {"sender": "HttpClient", "performative": "REQUEST",
+            "content": {"action": "check_slot", "venue_id": S.venue.id,
+                        "start": S.event.start_time.isoformat(), "end": S.event.end_time.isoformat()}}
+    r = S.c.post("/agents/VenueAgent/inbox", json=body, headers=hdr(S.admin))
+    assert r.status_code == 200 and r.json()["performative"] == "REFUSE" and r.json()["receiver"] == "HttpClient"
+    assert r.json()["content"]["reason"]
+    assert S.c.post("/agents/Nobody/inbox", json=body, headers=hdr(S.admin)).status_code == 404
+    assert S.c.post("/agents/VenueAgent/inbox", json={**body, "performative": "SHOUT"}, headers=hdr(S.admin)).status_code == 400
+    assert S.c.post("/agents/VenueAgent/inbox", json=body, headers=hdr(S.attendee)).status_code == 403
+    assert S.db.query(AgentMessage).filter_by(sender="HttpClient").count() == 1

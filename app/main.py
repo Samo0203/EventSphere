@@ -8,8 +8,9 @@ from fastapi.staticfiles import StaticFiles
 from app.database import Base, SessionLocal, engine
 from app.agents.agents import WaitlistAgent
 from app.agents.bus import REGISTRY
-from app.routers import auth, bookings, dashboard, events, hire, notifications, tickets, venues, waitlist
+from app.routers import agent_inbox, auth, bookings, dashboard, events, hire, notifications, tickets, venues, waitlist
 from app.seed import ensure_live_event, seed_demo
+
 
 log = logging.getLogger("eventsphere")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -65,7 +66,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="EventSphere", description="Agent-based venue booking and digital ticketing",
               version="3.0.0", lifespan=lifespan)
-for r in (auth, venues, events, bookings, tickets, hire, waitlist, notifications, dashboard):
+for r in (auth, venues, events, bookings, tickets, hire, waitlist, notifications, dashboard, agent_inbox):
     app.include_router(r.router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
