@@ -98,7 +98,7 @@ class HireIn(BaseModel):
     end_time: datetime
     purpose: str = Field(min_length=2, max_length=500)
     guest_count: int = Field(gt=0)
-    event_date: Optional[datetime] = None  # optional; derived from start_time
+    event_date: Optional[datetime] = None
 
     @model_validator(mode="after")
     def valid_times(self):
