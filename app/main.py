@@ -21,7 +21,7 @@ def _sweep():
     db = SessionLocal()
     try:
         WaitlistAgent(db).tick()
-    except Exception:  # noqa: BLE001
+    except Exception: 
         db.rollback()
         log.exception("Waitlist sweep failed")
     finally:
@@ -39,7 +39,7 @@ def _bootstrap():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        for cls in REGISTRY.values():  # make sure every agent has a persistent state row
+        for cls in REGISTRY.values():
             cls(db)
         db.commit()
         if os.getenv("SEED_DEMO", "1") == "1":
