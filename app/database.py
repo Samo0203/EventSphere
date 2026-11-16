@@ -3,8 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./eventsphere.db")
-# Render gives postgres:// or postgresql://. Force the psycopg2 driver that requirements.txt installs
-# (SQLAlchemy 2.1 would otherwise look for psycopg v3).
+
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = "postgresql+psycopg2://" + DATABASE_URL[len("postgres://"):]
 elif DATABASE_URL.startswith("postgresql://"):
