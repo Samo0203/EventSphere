@@ -452,7 +452,12 @@ const ACT = {
   toggleMore: () => $("#moreFilters").classList.toggle("d-none"), search: () => loadEvents(),
   openEvent: d => openEvent(d.id), book: doBook, waitlist: doWaitlist,
   notifs: openNotifs,
-  gotoTickets: () => { modal.hide(); S.ticketTab = "bookings"; if (location.hash === "#/tickets") viewTickets(); else location.hash = "#/tickets"; },
+  gotoTickets: () => {
+    modal.hide();
+    S.ticketTab = "bookings";
+    if (location.hash !== "#/tickets") history.pushState(null, "", "#/tickets");
+    route();
+  },
   gotoWaitlist: () => { modal.hide(); S.ticketTab = "waitlist"; if (location.hash === "#/tickets") viewTickets(); else location.hash = "#/tickets"; },
   gotoHires: () => { modal.hide(); S.adminTab = "hires"; if (location.hash === "#/admin") viewAdmin(); else location.hash = "#/admin"; },
   zoomQr: (d, el) => openModal("Ticket #" + d.id, `<div class="text-center"><img src="${el.src}" alt="Large QR code for ticket ${esc(d.id)}" style="width:100%;max-width:360px;image-rendering:pixelated;border-radius:12px"><p class="meta mt-2 mb-0">Raise your screen brightness and hold the code steady at the gate.</p></div>`),
