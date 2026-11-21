@@ -227,7 +227,7 @@ async function doBook(d, el) {
   const r = await api("/bookings/", { method: "POST", body: { event_id: Number(d.event), ticket_category_id: Number(d.cat), quantity } });
   openModal("Booking confirmed 🎉", `<div class="scan-result ok mb-3">${esc(r.event)}</div>
     <p class="mb-1">${r.quantity} ticket(s) · <b>${lkr(r.amount)}</b></p><p class="meta">Simulated payment reference: <b>${esc(r.payment_reference)}</b></p>
-    <a class="btn btn-brand w-100" href="#/tickets" data-bs-dismiss="modal">View my QR tickets</a>`);
+    <a class="btn btn-brand w-100" href="#/tickets" data-act="gotoTickets">View my QR tickets</a>`);
   loadEvents(); renderNav();
 }
 async function doWaitlist(d) {
@@ -452,6 +452,7 @@ const ACT = {
   toggleMore: () => $("#moreFilters").classList.toggle("d-none"), search: () => loadEvents(),
   openEvent: d => openEvent(d.id), book: doBook, waitlist: doWaitlist,
   notifs: openNotifs,
+  gotoTickets: () => { modal.hide(); S.ticketTab = "bookings"; if (location.hash === "#/tickets") viewTickets(); else location.hash = "#/tickets"; },
   gotoWaitlist: () => { modal.hide(); S.ticketTab = "waitlist"; if (location.hash === "#/tickets") viewTickets(); else location.hash = "#/tickets"; },
   gotoHires: () => { modal.hide(); S.adminTab = "hires"; if (location.hash === "#/admin") viewAdmin(); else location.hash = "#/admin"; },
   zoomQr: (d, el) => openModal("Ticket #" + d.id, `<div class="text-center"><img src="${el.src}" alt="Large QR code for ticket ${esc(d.id)}" style="width:100%;max-width:360px;image-rendering:pixelated;border-radius:12px"><p class="meta mt-2 mb-0">Raise your screen brightness and hold the code steady at the gate.</p></div>`),
@@ -512,6 +513,7 @@ document.addEventListener("click", async e => {
   const el = e.target.closest("[data-act]"); if (!el) return;
   const fn = ACT[el.dataset.act]; if (!fn) return;
   if (el.tagName === "A" && el.getAttribute("href") === "#") e.preventDefault();
+  if (el.dataset.act === "gotoTickets") e.preventDefault();
   if (el.dataset.act === "scrollEvents") e.preventDefault();
   el.disabled !== undefined && (el.disabled = true);
   try { await fn(el.dataset, el); } catch (err) { toast(err.message, "danger"); }

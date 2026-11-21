@@ -26,7 +26,7 @@ class VenueAgent(BaseAgent):
     OPEN_HOUR, CLOSE_HOUR = 8, 22
     MIN_LEAD_HOURS = 24
 
-    # --- reasoning helpers
+    # reasoning helpers
     def _clash(self, venue_id, start, end, exclude_event_id=None, exclude_hire_id=None):
         buf = timedelta(minutes=self.BUFFER_MINUTES)
         q = self.db.query(Event).filter(Event.venue_id == venue_id, Event.status != "cancelled",
